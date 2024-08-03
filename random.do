@@ -146,5 +146,35 @@ summary(PvfT_model)
 
 #by keeping all other variables constant, female partipcation becomes postive (6.7%) and significant (*)
 
-#12.5 
+12.5 
 #Measuring spillover effects of microcredit Program placement
+# investigate whether program placement in villages has an impact on nonparticipants 
+
+#restrict the sample to program villages 
+ 
+Pv_data <- subset(data.df, dfmfd == 0)
+
+spillover_progvillf <- lm(
+  lexptot ~ progvillf,
+  data = Pv_data,
+  weights = weight
+)
+summary(spillover_progvillf)
+#this result does  not show any spillover effects 
+
+
+#next run the extended regression model 
+
+spillover_progvillf_full <- lm(
+  lexptot ~ progvillf + sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
+  data = Pv_data,
+  weights = weight
+)
+summary(spillover_progvillf_full)
+
+#analysing the spillover 
+
+#progvillf co-eff is not significant at any level
+#p-value supports this 
+#after controlling for other factors program placement is not significant
+
