@@ -1,0 +1,165 @@
+#PSM Technique 
+
+#########USING MATCHIT################
+
+library(dplyr)
+library(Matching)
+library(MatchIt)
+library(ggplot2)
+library(twang)
+library(survey)
+library(cobalt)
+
+setwd("C:\\Users\\lschofield\\OneDrive - KPMG\\Documents\\Business Development\\3.0 World-Bank_Impact-Eval-Handbook\\data")
+
+data.df <- read.csv("hh_98.csv")
+
+data.df <- mutate(data.df, lexptot = log(1 + exptot)) %>%
+  mutate(lnland = log((1 + hhland/100)))
+
+
+#################
+# exercise
+################
+
+###################################
+#1. Estimate the propensity score 
+###################################
+
+psm_model <- glm(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
+                 data = data.df,
+                 family = quasibinomial("probit"))
+
+
+bal.tab <-bal.tab(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
+                  data = data.df,
+                  un = TRUE)
+
+bal.tab_before <- bal.tab(psm_model)
+bal.tab_before
+
+pscore <- predict(psm_model, type = "response")
+
+ggplot(data.df, aes(x = pscore, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Propensity Score Distribution by Treatment Group")
+
+
+love.plot(bal.tab, var.order = "unadj")
+
+###################################
+#2. Perform matching 
+###################################
+
+
+matchit_out <- matchit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg, 
+                       data = data.df, 
+                       method = "nearest",  # Nearest neighbor matching
+                       distance = "glm",  # Use probit regression to estimate propensity scores
+                       caliper = 0.001,  # Restrict matches to this range of propensity scores
+                       replace = FALSE,  # Do not allow replacement in matching
+                       verbose = TRUE,
+                       weights = data.df$weight)
+
+###################################
+#3. Assess balance 
+###################################
+
+
+bal.tab_after <- bal.tab(matchit_out)
+bal.tab_after
+
+plot(matchit_out, type = "histogram")
+
+love.plot(matchit_out, threshold = 0.1)
+
+ggplot(data.df, aes(x = pscore, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Propensity Score Distribution After Matching", x = "Propensity Score", y = "Density")
+
+
+###################################
+#4. Evaluate blocks and stratification 
+###################################
+
+# Obtain summary of matching
+summary(matchit_out)
+
+
+# Checking balance within blocks
+bal.table <- bal.tab(matchit_out, un = TRUE, stats = c("mean.diffs"))
+bal.table
+
+
+###################################
+#5. Re-run matching with adjustments
+###################################
+
+
+# Estimate propensity scores and perform nearest neighbor matching with removing oil
+
+
+psm_model_new <- glm(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg,
+                 data = data.df,
+                 family = quasibinomial("probit"))
+
+summary(psm_model_new)
+
+
+pscore_new <- predict(psm_model_new, type = "response")
+pscore_new
+
+
+matchit_out_new <- matchit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
+                       data = data.df, 
+                       method = "nearest",  # Nearest neighbor matching
+                       distance = "glm",  # Use probit regression to estimate propensity scores
+                       caliper = 0.001,  # Restrict matches to this range of propensity scores
+                       replace = FALSE,  # Allow replacement in matching
+                       discard = "both",  # Discard units outside common support
+                       verbose = TRUE,
+                       weights = data.df$weight)
+
+summary(matchit_out_new)
+
+bal.tab(matchit_out_new)
+
+plot(matchit_out_new, type = "histogram")
+
+love.plot(matchit_out_new, threshold = 0.1)
+
+
+###########################
+#examine matching quality 
+###########################
+
+ggplot(data.df, aes(x = pscore_new, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Propensity Score Distribution After Matching", x = "Propensity Score", y = "Density")
+
+
+###################################
+#6. Adjust the model
+###################################
+
+
+
+# Extract matched data
+matched_data <- match.data(matchit_out_new)
+
+# Create a new survey design object for the matched data
+des_matched <- svydesign(id = ~1, weights = ~weights, data = matched_data)
+
+# Fit the model using the matched data
+outcome_model <- svyglm(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
+                        design = des_matched, 
+                        family = quasibinomial(link = "probit"))
+
+# View the summary of the outcome model
+summary(outcome_model)
+
+# Assess the balance of covariates after matching
+prog.lm <- MatchBalance(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
+             data = matched_data, 
+             nboots = 500, 
+             ks = TRUE)
