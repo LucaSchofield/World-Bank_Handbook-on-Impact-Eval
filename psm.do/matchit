@@ -12,9 +12,9 @@ library(cobalt)
 
 setwd("C:\\Users\\lschofield\\OneDrive - KPMG\\Documents\\Business Development\\3.0 World-Bank_Impact-Eval-Handbook\\data")
 
-data.df <- read.csv("hh_98.csv")
+hh98.data <- read.csv("hh_98.csv")
 
-data.df <- mutate(data.df, lexptot = log(1 + exptot)) %>%
+hh.data <- mutate(hh98.data, lexptot = log(1 + exptot)) %>%
   mutate(lnland = log((1 + hhland/100)))
 
 
@@ -27,12 +27,12 @@ data.df <- mutate(data.df, lexptot = log(1 + exptot)) %>%
 ###################################
 
 psm_model <- glm(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
-                 data = data.df,
+                 data = hh.data,
                  family = quasibinomial("probit"))
 
 
 bal.tab <-bal.tab(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
-                  data = data.df,
+                  data = hh.data,
                   un = TRUE)
 
 bal.tab_before <- bal.tab(psm_model)
@@ -40,7 +40,7 @@ bal.tab_before
 
 pscore <- predict(psm_model, type = "response")
 
-ggplot(data.df, aes(x = pscore, fill = factor(dmmfd))) +
+ggplot(hh.data, aes(x = pscore, fill = factor(dmmfd))) +
   geom_density(alpha = 0.4) +
   labs(title = "Propensity Score Distribution by Treatment Group")
 
@@ -53,7 +53,7 @@ love.plot(bal.tab, var.order = "unadj")
 
 
 matchit_out <- matchit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg, 
-                       data = data.df, 
+                       data = hh.data, 
                        method = "nearest",  # Nearest neighbor matching
                        distance = "glm",  # Use probit regression to estimate propensity scores
                        caliper = 0.001,  # Restrict matches to this range of propensity scores
@@ -73,7 +73,7 @@ plot(matchit_out, type = "histogram")
 
 love.plot(matchit_out, threshold = 0.1)
 
-ggplot(data.df, aes(x = pscore, fill = factor(dmmfd))) +
+ggplot(hh.data, aes(x = pscore, fill = factor(dmmfd))) +
   geom_density(alpha = 0.4) +
   labs(title = "Propensity Score Distribution After Matching", x = "Propensity Score", y = "Density")
 
@@ -100,8 +100,8 @@ bal.table
 
 
 psm_model_new <- glm(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg,
-                 data = data.df,
-                 family = quasibinomial("probit"))
+                     data = hh.data,
+                     family = quasibinomial("probit"))
 
 summary(psm_model_new)
 
@@ -109,16 +109,19 @@ summary(psm_model_new)
 pscore_new <- predict(psm_model_new, type = "response")
 pscore_new
 
+#add propensity scores to data 
+hh.data <- hh.data %>% mutate(pscore = pscore_new)
+
 
 matchit_out_new <- matchit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
-                       data = data.df, 
-                       method = "nearest",  # Nearest neighbor matching
-                       distance = "glm",  # Use probit regression to estimate propensity scores
-                       caliper = 0.001,  # Restrict matches to this range of propensity scores
-                       replace = FALSE,  # Allow replacement in matching
-                       discard = "both",  # Discard units outside common support
-                       verbose = TRUE,
-                       weights = data.df$weight)
+                           data = hh.data, 
+                           method = "nearest",  # Nearest neighbor matching
+                           distance = "glm",  # Use probit regression to estimate propensity scores
+                           caliper = 0.001,  # Restrict matches to this range of propensity scores
+                           replace = FALSE,  # Allow replacement in matching
+                           discard = "both",  # Discard units outside common support
+                           verbose = TRUE,
+                           weights = hh.data$weight)
 
 summary(matchit_out_new)
 
@@ -133,7 +136,7 @@ love.plot(matchit_out_new, threshold = 0.1)
 #examine matching quality 
 ###########################
 
-ggplot(data.df, aes(x = pscore_new, fill = factor(dmmfd))) +
+ggplot(hh.data, aes(x = pscore_new, fill = factor(dmmfd))) +
   geom_density(alpha = 0.4) +
   labs(title = "Propensity Score Distribution After Matching", x = "Propensity Score", y = "Density")
 
@@ -160,6 +163,152 @@ summary(outcome_model)
 
 # Assess the balance of covariates after matching
 prog.lm <- MatchBalance(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
-             data = matched_data, 
-             nboots = 500, 
-             ks = TRUE)
+                        data = matched_data, 
+                        nboots = 500, 
+                        ks = TRUE)
+
+
+###################################
+#7. Estimate the Average Treatment Effect (ATE)
+###################################
+
+########################
+# using nearest neighbour
+########################
+
+# Calculate the Average Treatment Effect on the Treated (ATT)
+att_estimate <- svyglm(lexptot ~ dmmfd, design = des_matched, family = gaussian())
+
+#summary 
+summary(att_estimate)
+
+#confidence intervals 
+att_CI <-confint(att_estimate)
+att_CI
+
+# Check the distribution of the outcome variable by treatment group
+ggplot(matched_data, aes(x = lexptot, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Outcome Variable Distribution by Treatment Group", x = "Log Per Capita Total Expenditure", y = "Density")
+
+########################
+# using stratification 
+########################
+
+#############
+# PSM 
+#############
+
+
+# Perform stratification matching
+matchit_stratified <- matchit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + egg, 
+                              data = hh.data, 
+                              method = "subclass",  # Stratification matching
+                              distance = "glm",            # Use probit regression to estimate propensity scores
+                              replace = FALSE,             # Do not allow replacement in matching
+                              discard = "both",            # Discard units outside common support
+                              verbose = TRUE)
+
+
+# Check balance after stratification matching
+bal.tab_stratified <- bal.tab(matchit_stratified)
+print(bal.tab_stratified)
+
+# Plot the balance of covariates
+love.plot(matchit_stratified, threshold = 0.1)
+
+###################################
+# Extract matched data
+matched_data_stratified <- match.data(matchit_stratified)
+
+###################################
+# Estimate Average Treatment Effect on the Treated (ATT)
+###################################
+
+# Create a new survey design object for the matched data
+des_matched_stratified <- svydesign(id = ~1, weights = ~weights, data = matched_data_stratified)
+
+# Fit the model to estimate the ATT
+att_model_stratified <- svyglm(lexptot ~ dmmfd, 
+                               design = des_matched_stratified, 
+                               family = gaussian())
+
+# Summary of the ATT estimate
+summary(att_model_stratified)
+
+# Confidence intervals for the ATT
+att_ci_stratified <- confint(att_model_stratified)
+att_ci_stratified
+
+
+###################################
+# Visualizing the outcome variable by treatment group
+###################################
+
+ggplot(matched_data_stratified, aes(x = lexptot, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Outcome Variable Distribution by Treatment Group (Stratification)", 
+       x = "Log Per Capita Total Expenditure", y = "Density")
+
+
+
+########################
+# using kernel matching 
+########################
+
+###########################
+# 1. Perform kernel matching
+###########################
+
+install.packages("MatchIt")
+install.packages("MatchThem")
+install.packages("WeightIt")
+
+library(MatchIt)
+library(MatchThem)
+library(WeightIt)
+
+# Kernel matching using npc-based method
+kernel_weights <- weightit(dmmfd ~ sexhead + agehead + educhead + lnland + vaccess + pcirr + rice + wheat + milk + oil + egg,
+                           data = hh.data,
+                           method = "npcbps",  # Use npc-based method for kernel matching
+                           distance = pscore,
+                           estimand = "ATE")
+bal.tab(kernel_weights)
+
+# Add a new column to the dataset for kernel weights
+hh.data$kernel_weights <- kernel_weights$weights
+
+# Assess balance after kernel matching
+bal.tab(kernel_weights)
+
+#check the dataset
+head(hh.data)
+
+
+###########################
+# 3. Estimate the Average Treatment Effect (ATE) using kernel-based weights
+###########################
+
+# Create a survey design object using the kernel-matching weights
+design_kernel <- svydesign(ids = ~1, weights = ~kernel_weights, data = hh.data)
+
+# Estimate ATE using kernel-based matching
+ate_estimate <- svyglm(lexptot ~ dmmfd, 
+                       design = design_kernel,
+                       family = gaussian())
+
+
+# Summarize results
+summary(ate_estimate)
+
+# Confidence intervals
+ate_CI <- confint(ate_estimate)
+ate_CI
+
+###########################
+# 4. Visualize propensity score distribution after kernel matching
+###########################
+ggplot(hh.data, aes(x = pscore, fill = factor(dmmfd))) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Propensity Score Distribution after Kernel Matching", x = "Propensity Score", y = "Density")
