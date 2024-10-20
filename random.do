@@ -59,7 +59,7 @@ prog_villm_3 <- lm(
   data = data.df,
   weights = weight 
 )
-  
+
 summary(prog_villm_3)
 
 #Adjusting for other covariates there is still no significant impacts of program placement on the outcome variable
@@ -75,6 +75,7 @@ t.test(lexptot ~ dmmfd)
 
 #exploring - checking for heteroscedasticity 
 
+install.packages("lmtest")
 library(lmtest)
 model <- lm(lexptot ~ dmmfd, data = data.df)
 bptest(model)
@@ -114,7 +115,7 @@ plpf_model <- lm(
   data = data.df,
   weights = weight
 )
-summary(ppf_model)
+summary(plpf_model)
 
 #results show no signficicant effect on program placement, but positive significant effect (*) of 7.3% of female program participation t=2.4 
 # t-value is significantly different from 0 with a small p valueindicating strong evidence against the null 
@@ -125,13 +126,12 @@ summary(ppf_model)
 
 Pvf_data <- subset(data.df, progvillf == 1)
 
-PpPvf_model<-lm(
-  lexptot ~ dfmfd,
-  data = Pvf_data,
-  weights = weight
+PpPvf_model<-lm(lexptot ~ dfmfd,
+                data = Pvf_data,
+                weights = weight
 )
 
-summary(PpPv_model)
+summary(PpPvf_model)
 
 #results show the impact of female participation in microcredit programs on household expenditure in program villages is negative by 7%
 
@@ -151,7 +151,7 @@ summary(PvfT_model)
 # investigate whether program placement in villages has an impact on nonparticipants 
 
 #restrict the sample to program villages 
- 
+
 Pv_data <- subset(data.df, dfmfd == 0)
 
 spillover_progvillf <- lm(
@@ -177,4 +177,3 @@ summary(spillover_progvillf_full)
 #progvillf co-eff is not significant at any level
 #p-value supports this 
 #after controlling for other factors program placement is not significant
-
